@@ -4,18 +4,24 @@
   <meta charset="utf-8">
   <title>Pawtato Land #15685 — Unlist</title>
 </head>
-<body>
-<h1>Unlist Pawtato Land #15685</h1>
-<p>Connect Nightly and review the transaction carefully before approving it.</p>
 
-<button id="connect">Connect Nightly</button>
+<body>
+
+<h1>Unlist Pawtato Land #15685</h1>
+
+<p>
+This page is specifically for the Sui version of Nightly.
+</p>
+
+<button id="connect">Connect Nightly Sui</button>
 <button id="unlist" disabled>Unlist NFT</button>
 
-<pre id="status">Not connected.</pre>
+<pre id="status">Waiting for Nightly Sui...</pre>
 
 <script type="module">
-import { getWallets } from "https://esm.sh/@mysten/wallet-standard@0.19.0";
-import { Transaction } from "https://esm.sh/@mysten/sui@latest/transactions";
+
+import { Transaction } from
+"https://esm.sh/@mysten/sui@latest/transactions";
 
 const PACKAGE =
 "0xe50387176587c707c428c537b7b8fb530c3eaeadd16a45b1d975369f372dbc0a";
@@ -35,122 +41,274 @@ const KIOSK_OWNER_CAP =
 const NFT =
 "0x63118f4a0de3dc92a5cde98647e8cfd1c31492734a18b9ffb27dc51e3ff88cfa";
 
-let wallet;
-let account;
-
 const status = document.getElementById("status");
 const connectButton = document.getElementById("connect");
 const unlistButton = document.getElementById("unlist");
 
+let suiWallet = null;
+let account = null;
+
 function show(message) {
-  status.textContent = message;
+    status.textContent = message;
 }
 
-connectButton.onclick = async () => {
-  try {
-    const { get } = getWallets();
-    const wallets = get();
 
-    wallet = wallets.find(w =>
-      /nightly/i.test(w.name || "")
-    );
+/*
+  NIGHTLY SUI
 
-    if (!wallet) {
-      throw new Error(
-        "Nightly was not detected. Make sure the Nightly Chrome extension is installed and unlocked."
-      );
+  Nightly exposes its Sui wallet separately from
+  its Solana wallet.
+*/
+
+function getSuiWallet() {
+
+    if (
+        window.nightly &&
+        window.nightly.sui
+    ) {
+        return window.nightly.sui;
     }
 
-    const connector = wallet.features["standard:connect"];
+    return null;
+}
 
-    if (!connector) {
-      throw new Error("Nightly does not expose the expected connection interface.");
+
+connectButton.onclick = async function() {
+
+    try {
+
+        suiWallet = getSuiWallet();
+
+        if (!suiWallet) {
+
+            throw new Error(
+                "Nightly Sui wallet was not detected. " +
+                "Make sure the Nightly extension is installed, " +
+                "unlocked, and that this page is being opened from GitHub Pages."
+            );
+
+        }
+
+        show(
+            "Nightly Sui detected.\n\n" +
+            "Requesting Sui connection..."
+        );
+
+
+        /*
+          Nightly's Sui connection
+        */
+
+        if (suiWallet.connect) {
+
+            const result =
+                await suiWallet.connect();
+
+            account =
+                result?.accounts?.[0] ||
+                result?.account ||
+                result;
+
+        }
+
+        else if (suiWallet.request) {
+
+            const result =
+                await suiWallet.request({
+                    method: "sui_connect"
+                });
+
+            account =
+                result?.accounts?.[0] ||
+                result?.account ||
+                result;
+
+        }
+
+        else {
+
+            throw new Error(
+                "Nightly Sui wallet was found, but its connection method was not available."
+            );
+
+        }
+
+
+        if (!account) {
+
+            throw new Error(
+                "Nightly did not return a Sui account."
+            );
+
+        }
+
+
+        const address =
+            account.address ||
+            account.publicKey ||
+            account;
+
+        show(
+            "Connected to Sui:\n\n" +
+            address
+        );
+
+        unlistButton.disabled = false;
+
     }
 
-    const result = await connector.connect();
+    catch(error) {
 
-    account =
-      result.accounts.find(a =>
-        (a.chains || []).some(c =>
-          String(c).toLowerCase() === "sui:mainnet"
-        )
-      ) || result.accounts[0];
+        show(
+            "Sui connection error:\n\n" +
+            error.message
+        );
 
-    if (!account) {
-      throw new Error("No Sui account was returned by Nightly.");
     }
 
-    show("Connected:\n" + account.address);
-    unlistButton.disabled = false;
-
-  } catch (error) {
-    show("Connection error:\n" + error.message);
-  }
 };
 
-unlistButton.onclick = async () => {
-  try {
-    if (!wallet || !account) {
-      throw new Error("Connect Nightly first.");
+
+unlistButton.onclick = async function() {
+
+    try {
+
+        if (!suiWallet || !account) {
+
+            throw new Error(
+                "Connect the Nightly Sui wallet first."
+            );
+
+        }
+
+
+        const address =
+            account.address ||
+            account.publicKey;
+
+
+        /*
+          Construct the transaction.
+        */
+
+        const tx =
+            new Transaction();
+
+        tx.setSender(address);
+
+
+        tx.moveCall({
+
+            target:
+                `${PACKAGE}::marketplace::delist`,
+
+            typeArguments: [
+                LAND
+            ],
+
+            arguments: [
+
+                tx.sharedObjectRef({
+
+                    objectId:
+                        REGISTRY,
+
+                    initialSharedVersion:
+                        "850697169",
+
+                    mutable:
+                        true
+
+                }),
+
+                tx.sharedObjectRef({
+
+                    objectId:
+                        KIOSK,
+
+                    initialSharedVersion:
+                        "856595132",
+
+                    mutable:
+                        true
+
+                }),
+
+                tx.object(
+                    KIOSK_OWNER_CAP
+                ),
+
+                tx.pure.address(
+                    NFT
+                )
+
+            ]
+
+        });
+
+
+        show(
+            "Opening Nightly Sui...\n\n" +
+            "STOP and review the transaction before approving it."
+        );
+
+
+        /*
+          Ask Nightly Sui to sign and execute.
+        */
+
+        if (
+            suiWallet.signAndExecuteTransaction
+        ) {
+
+            const result =
+                await suiWallet.signAndExecuteTransaction({
+
+                    transaction:
+                        tx,
+
+                    account:
+                        account,
+
+                    chain:
+                        "sui:mainnet"
+
+                });
+
+
+            show(
+                "Transaction submitted:\n\n" +
+                JSON.stringify(
+                    result,
+                    null,
+                    2
+                )
+            );
+
+        }
+
+        else {
+
+            throw new Error(
+                "Nightly Sui signing method was not available."
+            );
+
+        }
+
     }
 
-    const tx = new Transaction();
+    catch(error) {
 
-    tx.setSender(account.address);
+        show(
+            "Transaction error:\n\n" +
+            error.message
+        );
 
-    tx.moveCall({
-      target: `${PACKAGE}::marketplace::delist`,
-      typeArguments: [LAND],
-
-      arguments: [
-        tx.sharedObjectRef({
-          objectId: REGISTRY,
-          initialSharedVersion: "850697169",
-          mutable: true
-        }),
-
-        tx.sharedObjectRef({
-          objectId: KIOSK,
-          initialSharedVersion: "856595132",
-          mutable: true
-        }),
-
-        tx.object(KIOSK_OWNER_CAP),
-
-        tx.pure.address(NFT)
-      ]
-    });
-
-    show(
-      "Opening Nightly...\n\n" +
-      "DO NOT approve until you have checked the transaction."
-    );
-
-    const signer =
-      wallet.features["sui:signAndExecuteTransaction"];
-
-    if (!signer) {
-      throw new Error(
-        "Nightly does not expose sui:signAndExecuteTransaction."
-      );
     }
 
-    const result =
-      await signer.signAndExecuteTransaction({
-        transaction: tx,
-        account: account,
-        chain: "sui:mainnet"
-      });
-
-    show(
-      "Transaction submitted.\n\n" +
-      JSON.stringify(result, null, 2)
-    );
-
-  } catch (error) {
-    show("Transaction error:\n" + error.message);
-  }
 };
+
 </script>
+
 </body>
 </html>
