@@ -1,0 +1,156 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Pawtato Land #15685 — Unlist</title>
+</head>
+<body>
+<h1>Unlist Pawtato Land #15685</h1>
+<p>Connect Nightly and review the transaction carefully before approving it.</p>
+
+<button id="connect">Connect Nightly</button>
+<button id="unlist" disabled>Unlist NFT</button>
+
+<pre id="status">Not connected.</pre>
+
+<script type="module">
+import { getWallets } from "https://esm.sh/@mysten/wallet-standard@0.19.0";
+import { Transaction } from "https://esm.sh/@mysten/sui@latest/transactions";
+
+const PACKAGE =
+"0xe50387176587c707c428c537b7b8fb530c3eaeadd16a45b1d975369f372dbc0a";
+
+const LAND =
+"0x9afb9a1c63a9bbaba650ef0a6b473b9874882cd63aab9570b99274e8f796f00::pawtato::LAND";
+
+const REGISTRY =
+"0x6c2f62f0ca9b2d2ae09b6fc53defff6e35a66b8c5412d00b8d3ff435a5ab7693";
+
+const KIOSK =
+"0x7646f619693397d4dfbd7e7d21e772c1005bf33b0c7c00bdf4947aad9184d2fe";
+
+const KIOSK_OWNER_CAP =
+"0xeb821e4c0ecc62c2ee530d27dea987aab7741664c8072a784b672573fb4b82b7";
+
+const NFT =
+"0x63118f4a0de3dc92a5cde98647e8cfd1c31492734a18b9ffb27dc51e3ff88cfa";
+
+let wallet;
+let account;
+
+const status = document.getElementById("status");
+const connectButton = document.getElementById("connect");
+const unlistButton = document.getElementById("unlist");
+
+function show(message) {
+  status.textContent = message;
+}
+
+connectButton.onclick = async () => {
+  try {
+    const { get } = getWallets();
+    const wallets = get();
+
+    wallet = wallets.find(w =>
+      /nightly/i.test(w.name || "")
+    );
+
+    if (!wallet) {
+      throw new Error(
+        "Nightly was not detected. Make sure the Nightly Chrome extension is installed and unlocked."
+      );
+    }
+
+    const connector = wallet.features["standard:connect"];
+
+    if (!connector) {
+      throw new Error("Nightly does not expose the expected connection interface.");
+    }
+
+    const result = await connector.connect();
+
+    account =
+      result.accounts.find(a =>
+        (a.chains || []).some(c =>
+          String(c).toLowerCase() === "sui:mainnet"
+        )
+      ) || result.accounts[0];
+
+    if (!account) {
+      throw new Error("No Sui account was returned by Nightly.");
+    }
+
+    show("Connected:\n" + account.address);
+    unlistButton.disabled = false;
+
+  } catch (error) {
+    show("Connection error:\n" + error.message);
+  }
+};
+
+unlistButton.onclick = async () => {
+  try {
+    if (!wallet || !account) {
+      throw new Error("Connect Nightly first.");
+    }
+
+    const tx = new Transaction();
+
+    tx.setSender(account.address);
+
+    tx.moveCall({
+      target: `${PACKAGE}::marketplace::delist`,
+      typeArguments: [LAND],
+
+      arguments: [
+        tx.sharedObjectRef({
+          objectId: REGISTRY,
+          initialSharedVersion: "850697169",
+          mutable: true
+        }),
+
+        tx.sharedObjectRef({
+          objectId: KIOSK,
+          initialSharedVersion: "856595132",
+          mutable: true
+        }),
+
+        tx.object(KIOSK_OWNER_CAP),
+
+        tx.pure.address(NFT)
+      ]
+    });
+
+    show(
+      "Opening Nightly...\n\n" +
+      "DO NOT approve until you have checked the transaction."
+    );
+
+    const signer =
+      wallet.features["sui:signAndExecuteTransaction"];
+
+    if (!signer) {
+      throw new Error(
+        "Nightly does not expose sui:signAndExecuteTransaction."
+      );
+    }
+
+    const result =
+      await signer.signAndExecuteTransaction({
+        transaction: tx,
+        account: account,
+        chain: "sui:mainnet"
+      });
+
+    show(
+      "Transaction submitted.\n\n" +
+      JSON.stringify(result, null, 2)
+    );
+
+  } catch (error) {
+    show("Transaction error:\n" + error.message);
+  }
+};
+</script>
+</body>
+</html>
